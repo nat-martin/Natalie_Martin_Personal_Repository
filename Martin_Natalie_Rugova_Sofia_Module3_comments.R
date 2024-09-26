@@ -82,7 +82,7 @@ anole.pglsHDgraph <- ggplot(anole.log.tibble) +
 anole.pglsHDgraph + scale_color_manual(values = c("#9f4bf5","#efa2df","#ff3568","#f4b52a","#2bd6ff","#3a3aff"))
 
 
-#CPK: needed the residuals vs. ecomorph [-1], a la.... 
+#CPK: needed the residuals vs. ecomorph [-2], a la.... 
 
 anole.log.tibble %>% 
   ggplot(aes(Ecomorph2,residuals.hindlimb))+
@@ -94,5 +94,5 @@ anole.log.tibble %>%
 
 
 
-#Total points: 9
+#Total points: 23
 

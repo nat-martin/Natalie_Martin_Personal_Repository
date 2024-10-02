@@ -1,0 +1,137 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "Module 4 Project Report"
+author: Natalie Martin & Stephen Yoshida - Team11
+output: html_document
+date: "2024-09-29"
+bibliography: BIOL3140.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ape) #for evo analysis
+library(nlme) #ditto
+library(MuMIn) #for AIC
+library(geiger) #for eco analysis
+library(knitr) #for knitting options
+```
+
+## Introduction
+
+This project aids to assess the morphological and allometric differences between ecomorphs within the genus *Anolis*. An ecomorph refers to a group of species with a similar ecological niche and behavior. The data used for the following evalutations and assessments is courtesy of @hagey2017there. 
+
+<center>
+![*Anolis* lizard](https://programs.ifas.ufl.edu/media/programsifasufledu/florida-4-h-forest-ecology/images/contest-stations/wildlife/reptiles/g-anole.jpg)
+</center>
+
+## Methods
+In order to assess these morphological and allometric differences we will evalute the hind limb size vs. snout-vent size relationship using standard frequenist models with and without a phylogenetic context. Finally, using an information theory approach, we will assess the fit of phylogeny corrected models under different models of character evolution - both Brownian motion (BM) and Ornstein Uhlenbeck (OU). 
+
+
+## Results 
+For project purposes, all code chunks from the [Adding Code with Chunks](https://bcorgbio.github.io/class/mod4_proj.html#adding-code-with-chunks) section are added below.
+
+```{r "library",include=FALSE}
+library(tidyverse) #always
+library(ape) #for evo analysis
+library(nlme) #ditto
+library(MuMIn) #for AIC
+library(geiger) #for eco analysis
+library(knitr) #for knitting options
+```
+
+```{r "load the data"}
+anole <- read_csv("anole.dat.csv")
+anole.eco <- read_csv("anole.eco.csv")
+anole.tree <- read.tree("anole.tre")
+```
+
+```{r "join, filter, mutate to log"}
+anole2 <- anole%>%
+left_join(anole.eco)%>%
+  filter(!Ecomorph%in%c("U","CH"))%>%
+  na.omit()
+
+anole.log <- anole2%>%
+  mutate_at(c("SVL", "HTotal","PH","ArbPD"),log)
+```
+
+```{r, "PGLS models"}
+### phylogenetic GLS models
+
+#PGLS under BM, no ecomorph
+pgls.BM1 <- gls(HTotal ~SVL, correlation = corBrownian(1,phy = anole.tree,form=~Species),data = anole.log, method = "ML")
+
+#PGLS under BM, w ecomorph
+pgls.BM2 <- gls(HTotal ~SVL * Ecomorph2, correlation = corBrownian(1,phy = anole.tree,form=~Species),data = anole.log, method = "ML")
+
+#PGLS under OU, no ecomorph
+pgls.OU1 <- gls(HTotal ~SVL, correlation = corMartins(0,phy = anole.tree,form=~Species),data = anole.log, method = "ML")
+
+#PGLS under OU, w, ecomorph
+pgls.OU2 <- gls(HTotal ~SVL * Ecomorph2, correlation = corMartins(0,phy = anole.tree,form=~Species),data = anole.log, method = "ML")
+```
+
+All phylogenetic tree data taken from @poe2017phylo.
+
+```{r "AIC"}
+anole.phylo.aic <- AICc(pgls.BM1,pgls.BM2,pgls.OU1,pgls.OU2)
+anole.phlow.aicw <- aicw(anole.phylo.aic$AICc)
+
+
+anole.phylo.aic%>%
+  kable(caption="AIC values for varying PGLS models")
+
+```
+
+```{r "add residuals"}
+#add phylo-corrected residuals
+anole.log <- anole.log%>%
+  mutate(phylo.res=residuals(pgls.BM2))
+```
+
+```{r "regression plot of log-transformed HTotal vs SVL", fig.cap="Mean total hind-limb length vs. Mean snout-vent length"}
+ggplot(data=anole.log, aes(HTotal,SVL,color=Ecomorph2))+geom_point()
+```
+
+```{r "plot residuals", fig.cap="Boxplot of phylogenetically corrected hindlimb residuals versus anole ecomorph"}
+#plot residuals
+p.eco.phylo <- anole.log%>%
+ggplot(aes(x=Ecomorph2,y=phylo.res)) +geom_boxplot() +stat_summary(fun=mean, geom="point", size=3)
+
+print(p.eco.phylo)
+
+```
+
+A PGLS model using *BM without ecomorph* produced an AIC score of -63.66118. 
+A PGLS model using *BM with ecomoroph* produced an AIC score of -92.98036.
+A PGLS model using *OU without ecomorph* procuded an AIC score of -57.31864.
+A PGLS modul using *OU with ecomorph* produced an AIC score of -84.89770.
+
+
+## Discussion
+
+Of the four models, the AIC value for *BM with ecomorph* is the lowest at -92.98036. Therefore, it is the best-fitting model among the four. This means that total hind-limb length and snout-vent length are best predictive of one another under a brownian motion (BM) model - rather than an Ornstein-Uhlenbeck (OU) model - that takes ecomorph into account.  
+
+## Author Contributions
+
+Both members of the team have contributed to the file equally. Both members of the team also have completed the assigned questions in a timely manner within the allotted deadline date.
+
+## References
+
+
+
+
+
+
+<div class="comment">
+Looks spectacular! 
+
+Total points: 25
+</div>

@@ -1,0 +1,35 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR5"
+author: "Natalie Martin"
+date: "2024-10-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+f <- list.files("dat", full.names = T, pattern = ".csv")
+xy <- read_csv(f, id="file") %>% 
+  group_by(X,Y) %>% #need to gorup by the file column [-1]
+  mutate(point=1:n())
+ggplot(xy, aes(x=X, y=Y, color=point)) +geom_point()
+```
+
+
+
+
+
+<div class="comment">
+well done! Nearly Perfect.
+
+Total points: 9
+</div>

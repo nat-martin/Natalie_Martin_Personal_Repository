@@ -1,0 +1,69 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 6"
+author: "Natalie Martin"
+date: "2024-10-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(geomorph)
+library(abind)
+```
+
+```{r}
+species_dat <- read_csv("habitat_data.csv")
+
+f <- list.files("landmarks", full.names = T, pattern = ".csv")
+
+xy <- read_csv(f, id="file") %>% 
+  select(file,X,Y) %>% 
+  mutate(Y=abs(Y-max(Y))) %>% 
+  mutate(file_name=gsub("*_.csv","",basename(file))) %>% 
+  left_join(species_dat)
+
+sp <- xy$sp %>% unique
+
+ldk_l <- list()
+for(i in sp) {
+  ldk_l[[i]] <- xy %>% 
+    filter(sp==i) %>% 
+    select(X,Y) #missing %>%  here so throw error. [-1]
+  data.frame
+}
+
+ldk <- abind(ldk_l, along = 3)
+dimnames(ldk)[[3]] <- names(ldk_l) #CPK:nice work
+ldk[,,1:3]
+
+ldk_al <- gpagen(ldk)
+plot(ldk_al)
+
+pca <- gm.prcomp(ldk_al$coords)
+plot(pca,1,2)
+```
+```{r, "BONUS"}
+pca$x %>% data.frame %>% select(Comp1,Comp2) %>% head
+PCA <- pca$x %>% 
+  data.frame %>% 
+  select(Comp1:Comp4) %>% 
+  mutate(sp=rownames(pca$x)) %>% 
+  left_join(species_dat)
+PCA %>% 
+  ggplot(aes(Comp1,Comp2), color=habitat) + geom_point()
+```
+
+
+
+<div class="comment">
+Almost nailed it! But, got the bonus!
+
+Total points: 11
+</div>

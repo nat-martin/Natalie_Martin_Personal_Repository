@@ -1,0 +1,39 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 7"
+author: "Natalie Martin"
+date: "2024-10-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(geomorph)
+```
+```{r}
+ldk_al <- readRDS("aligned_landmarks.RDS")
+
+species_dat <- read_csv("habitat_data.csv") %>% 
+  arrange(sp)
+
+gdf <- geomorph.data.frame(ldk_al,
+                           habitat=species_dat$habitat)
+
+md <- morphol.disparity(coords~1, groups= ~habitat, data=gdf, iter=10000, print.progress = F)
+
+summary(md)
+```
+
+
+
+<div class="comment">
+Easy peasy, lemon squeezy!
+
+Total points: 10
+</div>

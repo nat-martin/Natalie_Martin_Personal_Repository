@@ -1,0 +1,45 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 8"
+author: "Natalie Martin"
+date: "2024-10-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(parallel)
+```
+
+```{r}
+l <- list(rnorm(n=2,mean=10,sd=10))
+
+my_fun <- function(x){for (i in x) rnorm(1e8)}
+
+#CPK: This function needs to take a vector of length two and use these values to establish a random uniform dist within that range [-2], then compute the mean, a la
+
+my_fun <- function(x){
+  mean(runif(1e8,min=min(x),max=max(x)))
+}
+
+A <- system.time(lapply(l, my_fun))
+print(A)
+
+B <- system.time(mclapply(l, my_fun, mc.cores=detectCores()-2))
+print(B)
+```
+
+
+
+
+<div class="comment">
+Good work.
+
+Total points: 8
+</div>

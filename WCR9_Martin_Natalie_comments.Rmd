@@ -1,0 +1,95 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 9"
+author: "Natalie Martin"
+date: "2024-10-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rnaturalearth)
+library(rnaturalearthhires)
+library(sf)
+library(tidyverse)
+library(stars)
+```
+
+#3
+```{r}
+mass <- ne_states(country="United States of America") %>% 
+  dplyr::filter(name=="Massachusetts") %>% 
+  st_as_sf()
+
+#CPK: filter doesn't work on the object returned by ne_states [-1], but it would work on object returned by st_as_sf
+
+```
+
+#4
+```{r}
+bedrock <- read_stars("https://bcorgbio.github.io/class/data/bedrock/BEDROCK_ALTITUDE_IMG.tiff")
+```
+
+#5 
+```{r}
+bedrock %>% 
+  setNames("bedrock_altitude") %>% 
+  st_transform(st_crs(mass)) %>% 
+  st_downsample(30,mean) %>% 
+  st_crop(mass, xmin=-73.58, xmax=-69.82, ymin=41.18, ymax=42.98) #CPK: this need to be save as bedrock [-2]
+
+```
+
+#6 - Plotting Mass and Bedrock
+```{r}
+p <- mass %>% 
+  ggplot()+
+  geom_sf()+
+  geom_sf(data = bedrock, aes(fill=bedrock_altitude))
+```
+
+#Scratchwork
+```{r, "Mass and Bedrock as Individual Maps"}
+MA <- mass %>% 
+  ggplot()+
+  geom_sf()
+print(MA)
+
+BR <- ggplot()+
+  geom_stars(data=bedrock)
+print(BR)
+```
+
+
+
+
+<div class="comment">
+Nearly there. Here's a solution:
+
+```{r}
+
+mass <- ne_states(country="United States of America") %>% 
+  st_as_sf %>% 
+  dplyr::filter(name=="Massachusetts")
+
+bedrock <- read_stars("https://bcorgbio.github.io/class/data/bedrock/BEDROCK_ALTITUDE_IMG.tiff") 
+
+bedrock <-bedrock %>% 
+ setNames("bedrock_altitude") %>% 
+     st_transform( st_crs(mass)) %>% 
+  st_downsample(30,mean) %>% 
+  st_crop(mass)
+
+mass %>% 
+  ggplot()+
+  geom_sf()+
+  geom_stars(data=bedrock)
+```
+
+Total points: 7
+</div>

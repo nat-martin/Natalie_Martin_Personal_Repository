@@ -1,0 +1,182 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "Module 5 Project"
+author: "Turbo Trio - Team 6"
+date: "2024-10-24"
+output: html_document
+bibliography: BIOL3140.bib
+---
+```{r, load_libraries, include=FALSE}
+library(tidyverse)
+library(geomorph)
+library(abind)
+library(phytools)
+library(parallel)
+```
+
+# Introduction
+
+Investigating the relationship between shark body shape and habitat is essential for understanding the evolutionary processes that enable their success in diverse marine environments. Previous studies, such as those by @thomson1977body, identified morphotypes based on fin and body shape but did not quantify the influence of habitat—specifically pelagic versus benthic environments—on body form. While @sternes2020body suggested a connection between habitat preference and body shape, they did not conduct a phylogenetic analysis to validate this pattern.
+
+This project seeks to answer two important questions: Do pelagic and benthic sharks exhibit significantly different body shapes, and have their rates of morphological evolution differed? We will employ landmark-based geometric morphometrics to analyze shape variation across a broad sample of shark species, utilizing a phylogenetic framework to assess disparities and evolutionary rates. This study aims to provide insights into how ecological niches influence the evolution of shark morphology and their adaptation strategies.
+
+
+<div class="comment">
+Lovely short intro!
+</div>
+# Methods
+
+To address the research questions regarding the influence of habitat on shark morphology and evolutionary rates, we employed a combination of qualitative and quantitative analyses. First, we digitized the body shapes of multiple shark species using landmark-based geometric morphometrics. Each specimen was meticulously digitized at predetermined landmarks, allowing for precise shape analysis. An example of the digitization process is illustrated in Figure 1.
+
+<center>
+![**Figure 1:** Digitization of Shark Body Shapes Using Landmark-Based Geometric Morphometrics](https://bcorgbio.github.io/class/shark_points.png)
+</center>
+
+
+We established a dataset comprising all digitized specimens, which were aligned using Procrustes analysis to standardize shape variations across individuals. Following this, we conducted a principal components analysis (PCA) on the Procrustes-aligned data to visualize the morphospace occupied by pelagic and benthic sharks, focusing on the first two principal components to identify shape differences between habitats.
+
+To examine morphological disparity between habitats, we calculated the variance in shape within and between groups. Additionally, we estimated the rates of morphological evolution using a posterior distribution based on 500 phylogenetic trees, as presented in Figure 2. The phylogenetic relationships of the elasmobranchs were derived from @stein2018global, providing a robust framework for our evolutionary analysis.
+
+<center>
+![**Figure 2:** Phylogenetic Relationships of Elasmobranchs According to Stein et al. (2018) and Their Application in Evolutionary Analysis](https://media.springernature.com/lw685/springer-static/image/art%3A10.1038%2Fs41559-017-0448-4/MediaObjects/41559_2017_448_Fig1_HTML.jpg?as=webp)
+</center>
+
+
+We implemented parallel processing to enhance computational efficiency in our analyses and assessed the statistical significance of habitat effects on shape and evolutionary rates using a two-sided t-test (t.test()). This integrated approach aims to elucidate the ecological and behavioral implications of shape variation and evolutionary dynamics in relation to habitat.
+
+# Results
+
+### Morphospace Occupation
+
+To evaluate whether habitat type results in different morphospace occupation, we first constructed an array suitable for analysis using the digitized shark specimens. Procrustes alignment was performed on the landmark data to standardize shape variations across individuals. The principal components analysis (PCA) was conducted on the aligned data, and the first two principal components were plotted to visualize the morphospace.
+
+```{r, data_align_and_pca, echo=FALSE}
+shark_dat <- read_csv("shark_data.csv")
+
+f <- list.files("shark_points", full.names = TRUE, pattern = ".csv")
+xy <- read_csv(f, id = "file") %>% 
+  select(file, X, Y) %>% 
+  mutate(Y = abs(Y - max(Y))) %>% 
+  mutate(file_name = gsub("*_.csv", "", basename(file))) %>% 
+  left_join(shark_dat)
+
+ldk_l <- split(xy %>% select(X, Y), xy$sp)
+ldk <- abind(ldk_l, along = 3)
+dimnames(ldk)[[3]] <- names(ldk_l)
+
+ldk_al <- gpagen(ldk)
+
+pca <- gm.prcomp(ldk_al$coords)
+
+PCA <- pca$x %>%
+  data.frame() %>%
+  select(Comp1:Comp4) %>%
+  mutate(sp = rownames(pca$x)) %>%
+  left_join(shark_dat, by = "sp")
+```
+
+<center>
+```{r, figure3, echo=FALSE}
+PCA %>%
+  ggplot(aes(Comp1, Comp2, col = habitat)) +
+  geom_point() +
+  labs(title = "Figure 3: PCA of Shark Morphology")
+```
+</center>
+
+<div class="comment">
+Need a figure caption rather than a title. [-1] 
+</div>
+
+### Morphological Disparity
+
+To assess morphological disparity between habitats, we calculated the variance within and between groups. The morphol.disparity function was used to quantify shape variation.
+
+```{r, disparity_calculation, echo=FALSE}
+gdf <- geomorph.data.frame(ldk_al, habitat = PCA$habitat)
+md <- morphol.disparity(coords ~ 1, groups = ~ habitat, data = gdf, iter = 10000, print.progress = FALSE)
+
+summary(md)
+```
+
+### Rates of Morphological Evolution
+
+We evaluated whether the rates of morphological evolution significantly differed between habitat types. A posterior distribution of rates was generated based on 500 phylogenetic trees, employing parallel processing to enhance computational efficiency.
+
+```{r, evolutionary_rates, echo=FALSE}
+phy <- readNexus("shark_trees.nex")
+phy2 <- keep.tip(phy, PCA$sp)
+gp_hab <- PCA$habitat
+names(gp_hab) <- PCA$sp
+
+set.seed(1234)
+
+#CPK: no need to sample 500 trees of the 500 trees [-1]
+phy_sample <- sample(phy2, 500)
+
+er_fun <- function(x) {
+  er <- compare.evol.rates(A = ldk_al$coords, phy = x, method = "simulation", gp = gp_hab)
+  return(er)
+}
+
+er_l <- mclapply(phy_sample, er_fun, mc.cores = detectCores() - 2)
+
+er <- lapply(er_l, function(x) {
+  er_ <- c(x$sigma.d.gp, x$sigma.d.ratio)
+  names(er_)[3] <- "ratio"
+  return(er_)
+}) %>% do.call(rbind, .) %>% data.frame()
+```
+
+<center>
+```{r, figure4, echo=FALSE}
+er %>% 
+  pivot_longer(benthic:pelagic) %>% 
+  ggplot(aes(name, value)) + 
+  geom_boxplot() +
+  labs(title = "Figure 4: Rates of Morphological Evolution by Habitat")
+```
+</center>
+
+### Statistical Significance
+
+We assessed the statistical significance of habitat effects on shape and evolutionary rates using a two-sided t-test.
+
+```{r, t_test, echo=FALSE}
+t_test_results <- t.test(er$benthic, er$pelagic)
+print(t_test_results)
+```
+# Discussion
+The analysis of morphospace revealed distinct clustering between pelagic and benthic sharks, suggesting that habitat significantly influences body shape (PCA, Figure 3) with distinct morphological adaptations reflecting ecological needs. Pelagic species typically exhibit more aerodynamic body shapes best suited for open-water environments, facilitating efficient locomotion through critical rotational degrees of freedom, such as roll, yaw, and pitch, which are particularly influenced by their pectoral fins @coughlin2019three. In contrast, benthic species tend to have more robust body shapes optimized for maneuverability near the ocean floor, allowing for effective navigation and ambush predation strategies. These findings support previous work on the role of body shape in locomotion and ecological performance, such as that by @thomson1977body on morphology’s impact on locomotion, and @sternes2020body, who associated these shapes with specific evolutionary adaptations across shark species.
+
+Procrustes variance analysis indicated that benthic sharks had variances of 0.0322 compared to 0.0289 for pelagic sharks, with a non-significant pairwise difference (p = 0.587). However, the t-test yielded strong results (t = 5.3105, p = 5.199e-05), indicating that shape differences between habitats are meaningful. These results imply that while habitat influences morphological diversity, other factors—such as dietary needs or reproductive strategies—likely play a role in the observed shape variations among body shapes of shark species.
+
+Furthermore, the analysis of evolutionary rates revealed higher rates for pelagic sharks, suggesting that the dynamic, competitive nature of open-water habitats may drive faster adaptations to enhance survival. In contrast, benthic sharks, likely experiencing more stable environments, display slower morphological changes. This finding aligns with @ahti2020size, who identified body size as a key driver of ecological and evolutionary dynamics across fish species. They emphasized that changes in body size impact predator-prey relationships, metabolic demands, and resource use, with similar implications for shape in habitat-specific shark adaptations.
+
+These habitat-specific evolutionary trajectories suggest that pelagic sharks’ streamlined forms facilitate fast, energy-efficient locomotion @ahti2020size, whereas the robust bodies of benthic sharks support ecological strategies like ambush predation and fine-scale habitat maneuvering @coughlin2019three. The significant t-test results for evolutionary rates underscore habitat’s influence on morphological evolution, supporting previous research on morphology as a critical evolutionary trait shaped by environmental pressures.
+
+In conclusion, our study highlights ecological pressures as crucial determinants of shark morphology and evolutionary rates, with distinct adaptations enhancing ecological performance in pelagic versus benthic habitats. Further research should explore how specific ecological roles and environmental variables contribute to these observed morphological variations, providing a more comprehensive understanding of the links between shape, ecology, and evolutionary adaptation.
+
+
+<div class="comment">
+What a discussion. Thanks for drawing in some wonderful insights re ecology and macroevolution.
+</div>
+
+# Author Contributions
+The project members worked on the project by delegating tasks and splitting up the workload: Ira Zhusti worked on the Methods, Results, Discussion, Author Contributions, and Bibliography. Natalie Martin worked on the Results and Bibliography, and Caroline Vontzalides worked on the Introduction, Results, Author Contributions, and Bibliography. Project members contributed to the discussion board with Caroline asking questions and Ira answering questions weekly. Frequent communication occurred among the team with project members responding promptly when asking each other questions and clarifying any confusion. Ira and Caroline coordinated meeting times to work together on the code part of the Results section.  
+
+# References 
+
+
+<div class="comment">
+Great stuff! A crazy amount of work and it turned out masterfully! The writing is clear, the results and analysis state of the art. You should be very proud of this.
+
+My only very minor critique is that we need figure captions rather than merely titles.
+
+Total points: 48
+</div>

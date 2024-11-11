@@ -1,0 +1,57 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 10"
+author: "Natalie Martin"
+date: "2024-11-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(randomForest)
+```
+
+#Read Data
+```{r}
+rf_dat <- read_csv("salinity_data.csv")
+```
+
+#Establish xvars and yvar 
+```{r}
+xvars <- rf_dat %>% 
+  select(-FB_HT)
+yvar <- as.factor(rf_dat$FB_HT)
+```
+
+#Random forest model 
+```{r}
+rf <- randomForest(yvar~.,data=xvars,mtry=2,ntree=1000,importance=T)
+```
+
+#Save the predictions
+```{r}
+rf_dat$FB_HT <- rf$predicted
+```
+
+#Assess matches and mismatches
+```{r}
+varImpPlot(rf)
+```
+
+
+
+<div class="comment">
+Well done up until the last prompt [-2]. Merely needed:
+
+```{r}
+table(predicted=rf$predicted,FishBase=rf_dat$FB_HT)
+```
+
+Total points: 8
+</div>

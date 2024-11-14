@@ -1,0 +1,79 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 11"
+author: "Natalie Martin"
+date: "2024-11-13"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rgbif)
+library(tidyverse)
+library(MuMIn)
+library(data.table)
+library(ggmap)
+library(usmap)
+library(magick)
+library(cowplot)
+library(lme4)
+library(car)
+library(rnoaa)
+library(dplyr)
+```
+
+#1 
+```{r}
+snow <- read_delim("https://bcorgbio.github.io/class/data/snow.txt")
+```
+
+#2
+```{r}
+yr <- c(2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021)
+
+#CPK: or yr <- 2001:2021
+yw_l <- list()
+
+for (i in yr){
+  yw_l[[i]] <- occ_data(scientificName = "Acanthis flammea",
+               year=i,
+               limit=10000,
+               country="US",
+               basisOfRecord = "HUMAN_OBSERVATION",
+               stateProvince = "Maine")[[2]] %>% 
+    select(individualCount,year,month,day,decimalLongitude,decimalLatitude)
+}
+
+cr <- do.call(rbind,yw_l)
+```
+
+#3
+```{r}
+yr_count <- cr %>% 
+  group_by(year) %>% 
+  summarise(count=sum(individualCount, na.rm=T)) #CPK: Yes! na.rm
+```
+
+#4
+```{r}
+cr_snow <- left_join(yr_count,snow,by="year")
+```
+#5
+```{r}
+cr_snow %>% 
+  ggplot(aes(x=snow_in,y=count,col=year))+geom_point()
+```
+#Interpretation
+In more recent years we have seen more Acanthis flammea. Moderate snow totals, between 50 and 100 inches, typically correspond to higher Acanthis flammea observation rates. 
+
+
+
+<div class="comment">
+Excellent work! 
+
+Total points: 10
+</div>

@@ -1,0 +1,215 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "Module 6 Team 3"
+author: "Team 3"
+date: "2024-11-10"
+output: html_document
+bibliography: BIOL3140.bib
+---
+
+# Introduction
+
+White-tailed deer (WTD, *Odocoileus virginianus*) play a key role in North American ecosystems, influencing both ecological processes and human activities such as hunting. While the WTD population in the United States has rebounded from fewer than 2 million individuals in the early 1900s to about 30 million today (@foster2002), the recovery in New England has been more gradual due to historical deforestation and land-use changes. As suburbanization and reforestation have reshaped the region, then recent increase in WTD populations, particularly in suburban areas, raises important questions about the role of land-use patterns in influencing their abundance and harvest.
+
+This study addresses two main questions: (1) Is WTD harvest spatially autocorrelated across New Hampshire, indicating pockets of higher or lower harvest rates? (2) Does land-use pattern predict WTD harvest values, and which land-use types are most influential? Previous research has explored how land-use influences wildlife populations, but few studies have specifically examined the spatial distribution of WTD in New England or the relationship between land-use and harvest (@pearmangillman2020).
+
+To answer these questions, we will use spatial analysis techniques, such as spatial autocorrelation and random forest modeling, to assess how land-use types—such as forest, agricultural, and urban areas—affect WTD harvest patterns in New Hampshire.
+
+
+
+# Methods
+
+We analyzed WTD harvest data from the New Hampshire Department of Fish and Wildlife's annual harvest summaries (2021-2023), [found here](https://www.wildlife.nh.gov/hunting-nh/hunting-reports-harvest-summaries) as a proxy for abundance. Spatial analysis was conducted using R statistical software with the following packages: sf for spatial data handling, mapview for interactive visualization, and randomForest for predictive modeling.
+
+For spatial autocorrelation analysis, we created interactive maps using mapview to visualize harvest patterns. To assess land-use predictions, we combined harvest data with land-use classification data, calculated land-use proportions for each town, and implemented a random forest model. The model was tuned using cross-validation to optimize the mtry parameter. We then plotted the predicted values from the model against the Habitat Suitability Model (HSM) values to assess model accuracy in estimating WTD abundance.
+
+
+```{r, libraries, include=FALSE}
+library(rnaturalearth)
+library(sf)
+library(tidyverse)
+library(dplyr)
+library(stars)
+library(randomForest)
+library(mapview)
+library(ggplot2)
+```
+
+```{r, load the data, warning=F, echo = F, message = F}
+deer <- read_csv("https://bcorgbio.github.io/class/data/NH_deer.txt") %>%
+  mutate(TOWN=str_replace(TOWN,"_"," ") %>% str_to_title()) %>%
+  group_by(TOWN) %>%
+  summarise_at("HSM",mean)
+
+nh <- read_sf("/Users/carolinevontzalides/Documents/Org Bio Github/Team3_Project6/NH/New_Hampshire_Political_Boundaries.shp") %>%
+  rename(TOWN=pbpNAME) 
+
+lu <- stars::read_stars("/Users/carolinevontzalides/Documents/Org Bio Github/Team3_Project6/land_use/NLCD_2021_Land_Cover_L48_20230630_qtPZ6zMaTAibmibqfd37.tiff")
+```
+
+```{r, "intersection", message = F, warning=F, echo = F}
+lu2 <- lu %>% 
+  setNames("land_use") %>% 
+  st_transform(st_crs(nh)) %>% 
+  st_downsample(30,mean) %>% 
+  st_crop(nh)
+
+nh_deer <- nh %>%
+  left_join(deer, by = "TOWN") %>%
+  dplyr::select(TOWN, HSM, geometry)
+
+lu2_sf <- st_as_sf(lu2)
+
+nh_lu <- st_join(nh, lu2_sf)
+```
+
+	
+```{r, "make nh dat", message = F, warning=F, echo = F}
+nh_dat <- nh_lu %>% 
+  as.data.frame() %>%  
+  st_drop_geometry() %>%  
+  dplyr::group_by(TOWN, land_use, .drop = FALSE) %>% 
+  dplyr::count() %>%  
+  group_by(TOWN) %>%
+  mutate(prop = n / sum(n)) %>%   
+  select(-n) %>%  
+  pivot_wider(names_from = land_use, values_from = prop, values_fill = list(prop = 0)) %>% 
+  left_join(deer) 
+```
+
+
+```{r, "make rf dat", message = F, warning=F, echo = F}
+na_to_zero <- function(x) ifelse(is.na(x)|is.infinte(x), 0, x)
+arc_sin <- function(x) asin(sqrt(x))
+
+rf_dat <- nh_dat %>% 
+  st_drop_geometry() %>% 
+  ungroup %>% 
+  dplyr::select(-TOWN) %>% 
+  mutate(across(-HSM, arc_sin)) %>% 
+  filter(!is.na(HSM)) %>% 
+  select(where(~sum(.) !=0))
+
+colnames(rf_dat) <- str_replace_all(string=colnames(rf_dat), pattern=" |\\,|\\/", repl = "")
+```
+
+# Results 
+
+### Spatial Autocorrelation of WTD Abundance 
+
+To assess whether WTD abundance is spatially autocorrelated, we produced a map of deer abundance (HSM) across New Hampshire.
+
+
+
+<center>
+**Figure 1:** Map of White-Tailed Deer Abundance (HSM) Across New Hampshire (NH)
+</center>
+
+```{r, pretty map, message = F, warning=F, echo = F, fig.cap = "Maps of white-tailed deer abundance (HSM) across New Hampshire. The static map (top) and interactive map (bottom) both illustrate habitat suitability patterns, with darker shades representing areas of higher suitability. These visualizations help explore potential spatial clustering and autocorrelation in WTD abundance."}
+  
+nh_deer %>% 
+  ggplot() +
+  geom_sf(aes(fill = HSM)) +
+  labs(title = "White-Tailed Deer Abundance (HSM) Across New Hampshire")+ theme_minimal()
+
+mapview(nh_deer, zcol = "HSM")
+```
+
+### Assessing the Role of Land-Use Patterns in Predicting White-Tailed Deer Abundance
+
+
+
+<center>
+**Figure 2:** Variable Importance Plot from the Random Forest Model Predicting White-Tailed Deer Abundance
+</center>
+
+```{r, randomforest model 1, message = F, echo = F, warning=F, fig.cap = "Variable importance plot from the random forest model predicting white-tailed deer abundance (HSM) in New Hampshire. The plot displays the significance of each predictor variable. Higher values indicate greater importance in predicting habitat suitability for white-tailed deer."}
+  
+rf_model <- randomForest(HSM ~ ., data = rf_dat, mtry = 2, importance = TRUE, ntree = 1000)
+varImpPlot(rf_model, type=1)
+```
+
+### Tuning the Random Forest Model for Predicting White-Tailed Deer Abundance
+
+
+
+<center>
+**Figure 3:** Plot of Tuning Process for the Random Forest Model’s mtry Parameter
+</center>
+
+```{r, mtry, message = F, echo = F, warning=F, fig.cap = "Plot of the tuning process for the random forest model’s mtry parameter. This plot shows the model error rates at different mtry values (number of predictors randomly chosen at each split), helping to identify the optimal mtry value that minimizes prediction error for white-tailed deer abundance (HSM) in New Hampshire."}
+
+tuneRF(x=rf_dat %>% select(-HSM), 
+       rf_dat$HSM, 
+       stepFactor=1.5,
+       ntreeTry=100, trace = F, 
+       mtryStart=5, 
+       improve = 0.001)
+```
+
+### Evaluating Model Performance: Observed vs. Predicted White-Tailed Deer Abundance
+
+
+
+<center>
+**Figure 4:** Scatter Plot of Observed vs. Predicted HSM Values from the Tuned Random Forest Model
+</center>
+
+```{r, Tuned, message = F,echo = F, warning=F, fig.cap = "Scatter plot comparing observed HSM values to predicted HSM values from the tuned random forest model. This plot evaluates the model’s predictive accuracy for white-tailed deer abundance (HSM) across New Hampshire,with higher scores contribute more to the model’s prediction accuracy, helping to identify key factors influencing deer abundance."}
+  
+rf2 <- randomForest(HSM ~ ., data = rf_dat, importance = TRUE, mtry = 2, ntree = 1000)
+varImpPlot(rf2, type=1)
+
+rf_dat$pred_HSM <- rf2$predicted
+```
+
+
+### Assessing Model Accuracy with Log-Transformed Observed vs. Predicted HSM Values
+
+
+
+<center>
+**Figure 5:** Scatter Plot of Log-Transformed Observed vs. Predicted HSM Values with Linear Regression Line
+</center> 
+
+```{r, prediction, message = F, echo = F, warning=F, fig.cap="Scatter plot of observed HSM values versus predicted HSM values from the random forest model, with a linear regression line fitted. The plot uses log-transformed values to assess the model’s accuracy in predicting white-tailed deer abundance across New Hampshire, with a closer fit to the regression line indicating better model performance."}
+  
+rf_dat %>% 
+  mutate_at(c("HSM","pred_HSM"),log) %>% 
+  ggplot(aes(HSM,pred_HSM))+
+  geom_point()+
+  geom_smooth(method="lm")
+```
+
+
+<div class="comment">
+The analysis here is spot on and incorporates all the crazy operations needed. The figures and map look superb.
+
+However, we're just missing some narrative. You have captions, but that' not enough. [-2]
+</div>
+# Discussion 
+
+This study aimed to investigate whether white-tailed deer (WTD) abundance is spatially autocorrelated and if land-use patterns predict WTD harvest values in New Hampshire. Our spatial analysis revealed that WTD abundance is spatially autocorrelated, with distinct clusters of higher and lower habitat suitability for deer, particularly in forested and urban areas. These findings suggest that WTD populations tend to cluster in specific areas, such as Newington and Dover.
+
+Using a tuned random forest model, we found that land-use patterns, especially the proportion of forest cover and urban areas in each town, were significant predictors of WTD abundance. Forested areas were the most important variable in predicting deer habitat suitability, aligning with previous studies (e.g., @hanberry2021addressing) that also found forest cover to be a key factor in determining WTD distribution. The model’s ability to predict deer abundance based on land-use proportions highlights the importance of land-use planning in wildlife management. Furthermore, Figure 5 illustrates that the HSM model closely aligns with the predicted values from the random forest model. This close alignment indicates that the model effectively captures the variation in white-tailed deer abundance across New Hampshire.
+
+These results contribute to the broader understanding of how land-use changes impact wildlife populations and underscore the need for conservation strategies that protect forested areas. Preserving such habitats will be crucial for maintaining sustainable WTD populations in New Hampshire and other similar regions.
+
+# Author Contributions
+
+The project members worked equally on the project by delegating tasks and splitting up the workload: Lucius worked on the Methods, Natalie worked on the Discussion and Bibliography, and Caroline worked on the Introduction, Results, Author Contributions, and Bibliography. Project members contributed to the discussion board with Natalie asking questions and Caroline answering questions weekly. Frequent communication occurred among the team with project members asking each other questions and clarifying any confusion.
+
+
+# References 
+
+
+<div class="comment">
+Super well done! Spatial analysis is complicated and this group made it look easty!
+
+Total points: 48
+</div>

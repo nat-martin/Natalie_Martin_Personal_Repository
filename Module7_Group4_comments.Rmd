@@ -1,0 +1,821 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+  
+---
+title: "Module 7 Project"
+author: "Kalaimagal Nesarajah, Natalie Martin, Jasmine Yehia"
+date: "2024-11-17"
+output: html_document
+bibliography: BIOL3140.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rgbif)
+library(tidyverse)
+library(MuMIn)
+library(rnoaa)
+library(data.table)
+library(ggmap)
+library(usmap)
+library(lme4) 
+library(car) 
+library(kableExtra)
+```
+## Introduction
+
+In an ever changing climate, trans-Gulf migrants (TGMs), such as neotropical passerines, are facing new and unique challenges. Due to warmer temperatures, it has been hypothesized that TGMs are in danger of population decline if they are unable to accordingly adjust their arrival dates in breeding areas. The mechanisms of these adjustments are widely unknown. There exists much debate in the field as to how, or even if, long-distance migrating species shift their migratory patterns as a result of climate change. Cynthia Carey, a professor in the University of Colorado Boulder’s Department of Integrative Physiology, claims, “Climate change is causing mismatches in food supplies, snow cover and other factors that could severely impact successful migration and reproduction of avian populations unless they are able to adjust” [@carey2009impacts]. In order to better understand how our changing climate could be affecting TGM migration, we must first examine the mechanisms by which their migratory patterns adjust. This initiative to understand such mechanisms has been further enforced as a result of new species conservation efforts. 
+
+<center>
+[![Archilochus colubris] (https://www.google.com/url?sa=i&url=https%3A%2F%2Fdlia.org%2Fatbidata%2FSpeciesPage.php%3Fftaxon%3DTrochilidae%26gtaxon%3DArchilochus%26staxon%3Dcolubris%26sstaxon%3D&psig=AOvVaw0__gyhisQcOqs1NssHalfK&ust=1732574727173000&source=images&cd=vfe&opi=89978449&ved=0CBQQjRxqFwoTCLjNq_2F9okDFQAAAAAdAAAAABAK) 
+</center>
+
+
+This project will work to determine if meteorological conditions, particularly temperature and wind variables, along the TGM’s migration route will affect their arrival time in Massachusetts. If so, the analysis will also work to explain how our changing climate will affect TGM populations. 
+
+
+
+## Methods
+The goal of this project is to evaluate how climatic conditions, particularly temperature and wind, impact migratory arrival patterns and how these relationships might evolve. Here, we describe the steps in the analysis and how they address the project questions.
+
+### Weather Data 
+Meteorological and species-specific data were collected and analyzed from three NOAA weather stations (`GHCND:USW00013894`, `GHCND:USW00013881`, and `GHCND:USW00014739`). Data from these stations were retrieved using the `ncdc_stations()` function, and rows were combined with `bind_rows`. Latitude and longitude coordinates were transformed for compatibility with US map projections using `usmap_transform`. Additional columns were added with migration delay periods of 0, 5, and 10 days, and station names were simplified for their respective states. Spatial visualization using `plot_usmap` confirmed the station distribution for proper geographic coverage.  
+
+Daily weather data were then collected for each station using the `meteo_pull_monitors()` function, covering the period from January 1, 2000, onward. The data included daily minimum and maximum temperatures (`tmin`, `tmax`) and average wind speed (`awnd`). These variables were processed to compute derived metrics such as Julian day, wind direction, and wind vectors. Migration delays were incorporated by adding days to Julian day calculations, for temporal alignment of weather patterns with bird arrival dates.
+
+### Data Compilation
+We began by defining a list of five TGMs (*Archilochus colubris*, *Vireo solitarius*, *Antrostomus vociferus*, *Dolichonyx oryzivorus*, and *Catharus fuscescens*) and retrieving their occurrence data for the specified years and months using the ‘rgbif’ package's ‘occ_data()’ function. A for loop iteratively filtered the occurrence data for each species, filtered by state (Massachusetts), observation type (human observation), and time frame. The data for all species were then compiled into a single dataset. This provides the occurrence records for estimating arrival dates and temporal trends in migratory behavior.
+
+### Estimating Arrival Times
+To estimate arrival times, we used logistic modeling to predict the Julian day on which 25% of the population for each species had arrived, or the arrival threshold. For each species, occurrence data were grouped by year, and the proportion of individuals arriving by each Julian day was calculated. A logistic model was fitted to these cumulative proportions using the self-starting logistic function ‘SSlogis’. Arrival thresholds were determined as the Julian day where the model-predicted cumulative proportion reached 0.25. This allows for a standardized comparison of arrival timing across years and species. Predicted arrival dates were then integrated with the processed weather data using `left_join`.
+
+### Removing Variance
+To assess the influence of short-term climatic trends, two-week rolling averages for temperature and wind vector metrics were computed using `frollmean`. These smoothed variables helped mitigate daily fluctuations, providing a clearer view of weather patterns influencing arrival times. Rolling averages for minimum temperature, maximum temperature, and wind vectors were merged with the species arrival data for analysis.  
+
+### Linear Modeling
+Linear mixed-effect models (`lmer`) were used to quantify the relationships between arrival dates and weather variables. Separate models were created to test the influence of single-day weather values and two-week averages. Each model included weather variables and their interactions as fixed effects, while station names were included as random effects to account for site-specific variability. Model selection was performed using the `dredge()` function, which compared all possible combinations of predictors. 
+
+### Analysis of Significance
+Final model evaluation was done with `Anova()`, testing the significance of key weather variables on arrival timing. The final best-fit model showed the influence of minimum and maximum temperatures and wind patterns on migratory behavior. 
+
+
+
+
+
+## Results
+
+### Accessing the TMG Data
+```{r analysis, echo = FALSE, warning = FALSE}
+
+species <- c("Archilochus colubris","Vireo solitarius","Antrostomus vociferus","Dolichonyx oryzivorus","Catharus fuscescens")
+
+y <- paste0("2000",",","2019")
+m <- paste0("4",",","5")
+
+
+dat.l <-list()
+
+for(s in species){
+  
+ 
+n.obs <-  occ_data(scientificName = s,year=y,month=m,limit=0,country="US",basisOfRecord = "HUMAN_OBSERVATION",stateProvince="Massachusetts")$meta$count 
+
+print(n.obs)
+
+
+dat.l[[paste0(s)]] <- occ_data(scientificName = s,year=y,month=m,
+                               limit=n.obs,country="US",
+                               basisOfRecord = "HUMAN_OBSERVATION",
+                               stateProvince="Massachusetts")[[2]]
+
+
+}
+
+dat <- rbindlist(dat.l,fill=T)
+
+head(dat)
+saveRDS(dat,"massbird.data.RDS")
+
+#CPK: How is it that you saved the data but it's not in the repo. Could have saved me some time. Push all data! [-3] This wouldn't be an issue if you were actutally using this repo during code development
+```
+
+```{r load, echo = FALSE, warning = FALSE}
+dat <- readRDS("massbird.data.RDS")
+dat %>%
+  group_by(year, species) %>%
+  summarise(count = sum(individualCount, na.rm = TRUE)) %>%
+  ggplot(aes(x = year, y = count, col = species)) +
+  geom_point() +
+  labs(
+    title = "Annual Sightings by Species",
+    x = "Year",
+    y = "Total Individual Count",
+    color = "Species"
+  )
+
+```
+
+### Accessing the Weather Data
+#### Mapping Key Monitoring Sites to Visualize Regional Impacts on Migration and Weather Patterns
+```{r rnoaa, echo = FALSE, message = FALSE, warning = FALSE}
+## my token:jVlOVtfEuVLybrSdQUShhopPPxeggjYj
+
+options(noaakey = "jVlOVtfEuVLybrSdQUShhopPPxeggjYj")
+
+sts <- c(
+  "GHCND:USW00013894",
+  "GHCND:USW00013881", 
+  "GHCND:USW00014739" 
+)
+
+
+
+
+
+sta.d <- bind_rows( #bind the rows
+  lapply(sts,function(x) ncdc_stations(stationid = x)$data ) #use lapply to run through stations
+  )%>%
+  mutate(usmap_transform(.,input_names = c("longitude","latitude")))%>% #join transformation of lat/long for projection with usmap
+  mutate(name=str_sub(name, -5,-4))%>%#simplify the name column, grab just the state
+  mutate(migr.day=c(10,5,0))%>% #so we can look at wind speed 0, 5 or 10 days before arrive i`n boston
+  separate(id,into = c("station.type","id"))
+
+
+  sta.d <- sta.d %>% cbind(sta.d %>% sf::st_as_sf()%>% sf::st_coordinates())
+  
+plot_usmap(
+  include = c(.northeast_region, .south_region, .east_north_central)
+) +
+  geom_point(data = sta.d, aes(X, Y, col = name), size = 3) +
+  scale_color_discrete(name = "State Abbreviation") +
+  labs(
+    title = "Station Locations and Migration Day Adjustments",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_minimal()
+
+weather.d <- meteo_pull_monitors(sta.d$id,date_min = "2000-01-01")  
+
+weather.d <- weather.d%>%
+  mutate(year=as.integer(str_sub(date,1,4)),  date=as.Date(date))%>%
+  group_by(year)%>%
+ mutate(j.day=julian(date,origin=as.Date(paste0(unique(year),"-01-01"))),  date2=date, wdir.rad=(180-abs(wdf2-180))*pi/180, wvec=cos(wdir.rad)*-1*awnd  )%>% 
+  dplyr::select(id,year,date2,j.day,tmin,tmax,wvec)%>% 
+  left_join(sta.d%>%select(id,name,migr.day))%>% 
+  mutate(j.day=j.day+migr.day)
+
+
+
+
+
+ ## geom_point(data=sta.d,aes(x=longitude,y=latitude,col=name),size=5)+geom_label(data=sta.d,aes(x=longitude,y=latitude,col=name,label=name),size=5,nudge_x = 1e6*0.25)+theme(legend.position = "none")
+
+```
+
+### Archilochus colubris
+```{r AC, echo = FALSE, message = FALSE, warning = FALSE}
+##Ruby throated hummingbird
+ac<- dat%>%
+  filter(species=="Archilochus colubris")%>%
+  group_by(year)%>%
+  mutate(date=as.Date(paste0(year,"-",month,"-",day)),
+         j.day=julian(date,origin=as.Date(paste0(unique(year),"-01-01")))
+  )%>%
+  group_by(species,year,j.day,date)%>%
+  summarise(day.tot=sum(individualCount,na.rm=T))%>%
+  group_by(species,year)%>%
+  mutate(prop=cumsum(day.tot/sum(day.tot,na.rm = T)))%>%
+  filter(year>2000)
+
+
+ac %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point() +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Proportion of Cumulative Sightings Over Time of Archilochus colubris",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+ac.pred <- ac%>%
+  group_by(year)%>%
+ summarize(
+   pred=predict(nls(prop~SSlogis(j.day,Asym, xmid, scal)),newdata=data.frame(j.day=min(j.day):max(j.day))),
+   j.day=min(j.day):max(j.day),
+  )%>%
+  left_join(ac%>%dplyr::select(j.day,date)) 
+ac %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point(aes(alpha = 0.3)) +
+  geom_line(data = ac.pred, aes(x = j.day, y = pred), col = "blue", size = 2) +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Observed Data and Logistic Model Prediction of Archilochus colubris",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+ac.arrive.date <-ac.pred%>%
+  group_by(year)%>%
+  filter(j.day==j.day[which.min(abs(pred-0.25))])
+
+ac.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Arrival Dates by Year of Archilochus colubris",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+ac.arr.weath <- ac.arrive.date%>%
+  left_join(weather.d)%>%
+  left_join(ac%>%dplyr::select(year,date,j.day))
+
+
+ac.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Weather-Related Arrival Dates by Year of Archilochus colubris",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+
+ac.arr.weath <- ac.arrive.date%>%
+  left_join(weather.d)%>%
+  left_join(ac%>%dplyr::select(year,date,j.day))
+
+weather.wk <-weather.d %>% 
+  group_by(year,name) %>% 
+  mutate(wk.tmin = frollmean(tmin, n=14,align="right"),
+         wk.tmax = frollmean(tmax, n=14,align="right"),
+         wk.wvec = frollmean(wvec, n=14,align="right")
+         )%>%
+  dplyr::select(j.day,date2,name,wk.tmin,wk.tmax,wk.wvec)
+
+ac.arr.weath2 <- ac.arrive.date%>%
+  left_join(weather.wk)
+
+ac.lmer <- lmer(j.day~tmin*tmax*wvec+(1|name),ac.arr.weath,na.action = "na.fail")
+
+Anova(ac.lmer)
+
+ac.lmer2 <- lmer(j.day~wk.tmin*wk.tmax*wk.wvec+(1|name),ac.arr.weath2,na.action = "na.fail")
+
+Anova(ac.lmer2) 
+
+ac.arr.aic <- dredge(ac.lmer2,fixed = c("wk.tmin","wk.tmax","wk.wvec"),)
+
+ac.kb <- kable(ac.arr.aic[1:4,],caption = "Fit values for nested models of the most complicated lme model for of Archilochus colubris")
+
+kable_styling(ac.kb)
+
+ac.best.lmer <-  lmer(j.day~wk.tmin+wk.tmax+wk.wvec+(1|name),ac.arr.weath2,na.action = "na.fail")
+
+Anova(ac.best.lmer)
+```
+
+### Antrostomus vociferus
+```{r AV, echo = FALSE, message = FALSE, warning = FALSE}
+##Antrostomus vociferus
+av <- dat %>%
+  filter(species == "Antrostomus vociferus") %>%
+  group_by(year) %>%
+  mutate(date = as.Date(paste0(year, "-", month, "-", day)),
+         j.day = julian(date, origin = as.Date(paste0(unique(year), "-01-01")))
+  ) %>%
+  group_by(species, year, j.day, date) %>%
+  summarise(day.tot = sum(individualCount, na.rm = TRUE)) %>%
+  group_by(species, year) %>%
+  mutate(prop = cumsum(day.tot / sum(day.tot, na.rm = TRUE))) %>%
+  filter(year > 2000)
+
+av %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point() +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Proportion of Cumulative Sightings Over Time of Antrostomus vociferus",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+av.pred <- av %>%
+  group_by(year) %>%
+  summarize(
+    pred = predict(nls(prop ~ SSlogis(j.day, Asym, xmid, scal)), 
+                   newdata = data.frame(j.day = min(j.day):max(j.day))),
+    j.day = min(j.day):max(j.day)
+  ) %>%
+  left_join(av %>% dplyr::select(j.day, date)) 
+
+av %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point(aes(alpha = 0.3)) +
+  geom_line(data = av.pred, aes(x = j.day, y = pred), col = "blue", size = 2) +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Observed Data and Logistic Model Prediction of Antrostomus vociferus",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+av.arrive.date <- av.pred %>%
+  group_by(year) %>%
+  filter(j.day == j.day[which.min(abs(pred - 0.25))])
+
+av.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Arrival Dates by Year of Antrostomus vociferus",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+av.arr.weath <- av.arrive.date %>%
+  left_join(weather.d) %>%
+  left_join(av %>% dplyr::select(year, date, j.day))
+
+av.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Weather-Related Arrival Dates by Year of Antrostomus vociferus",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+av.arr.weath <- av.arrive.date %>%
+  left_join(weather.d) %>%
+  left_join(av %>% dplyr::select(year, date, j.day))
+
+weather.wk <- weather.d %>% 
+  group_by(year, name) %>% 
+  mutate(wk.tmin = frollmean(tmin, n = 14, align = "right"),
+         wk.tmax = frollmean(tmax, n = 14, align = "right"),
+         wk.wvec = frollmean(wvec, n = 14, align = "right")
+  ) %>%
+  dplyr::select(j.day, date2, name, wk.tmin, wk.tmax, wk.wvec)
+
+av.arr.weath2 <- av.arrive.date %>%
+  left_join(weather.wk)
+
+av.lmer <- lmer(j.day ~ tmin * tmax * wvec + (1 | name), av.arr.weath, na.action = "na.fail")
+
+Anova(av.lmer)
+
+av.lmer2 <- lmer(j.day ~ wk.tmin * wk.tmax * wk.wvec + (1 | name), av.arr.weath2, na.action = "na.fail")
+
+Anova(av.lmer2) 
+
+av.arr.aic <- dredge(av.lmer2, fixed = c("wk.tmin", "wk.tmax", "wk.wvec"))
+
+av.kb <- kable(av.arr.aic[1:4,], 
+               caption = "Fit values for nested models of the most complicated lme model for Antrostomus vociferus")
+
+kable_styling(av.kb)
+
+av.best.lmer <- lmer(j.day ~ wk.tmin + wk.tmax + wk.wvec + (1 | name), av.arr.weath2, na.action = "na.fail")
+
+Anova(av.best.lmer)
+
+
+```
+
+### Dolichonyx oryzivorus
+```{r DO, echo = FALSE, message = FALSE, warning = FALSE}
+##Dolichonyx oryzivorus
+do <- dat %>%
+  filter(species == "Dolichonyx oryzivorus") %>%
+  group_by(year) %>%
+  mutate(date = as.Date(paste0(year, "-", month, "-", day)),
+         j.day = julian(date, origin = as.Date(paste0(unique(year), "-01-01")))
+  ) %>%
+  group_by(species, year, j.day, date) %>%
+  summarise(day.tot = sum(individualCount, na.rm = TRUE)) %>%
+  group_by(species, year) %>%
+  mutate(prop = cumsum(day.tot / sum(day.tot, na.rm = TRUE))) %>%
+  filter(year > 2000)
+
+do %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point() +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Proportion of Cumulative Sightings Over Time of Dolichonyx oryzivorus",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+do.pred <- do %>%
+  group_by(year) %>%
+  summarize(
+    pred = predict(nls(prop ~ SSlogis(j.day, Asym, xmid, scal)), 
+                   newdata = data.frame(j.day = min(j.day):max(j.day))),
+    j.day = min(j.day):max(j.day)
+  ) %>%
+  left_join(do %>% dplyr::select(j.day, date)) 
+
+do %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point(aes(alpha = 0.3)) +
+  geom_line(data = do.pred, aes(x = j.day, y = pred), col = "blue", size = 2) +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Observed Data and Logistic Model Prediction of Dolichonyx oryzivorus",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+do.arrive.date <- do.pred %>%
+  group_by(year) %>%
+  filter(j.day == j.day[which.min(abs(pred - 0.25))])
+
+do.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Arrival Dates by Year of Dolichonyx oryzivorus",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+do.arr.weath <- do.arrive.date %>%
+  left_join(weather.d) %>%
+  left_join(do %>% dplyr::select(year, date, j.day))
+
+do.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Weather-Related Arrival Dates by Year of Dolichonyx oryzivorus",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+do.arr.weath <- do.arrive.date %>%
+  left_join(weather.d) %>%
+  left_join(do %>% dplyr::select(year, date, j.day))
+
+weather.wk <- weather.d %>% 
+  group_by(year, name) %>% 
+  mutate(wk.tmin = frollmean(tmin, n = 14, align = "right"),
+         wk.tmax = frollmean(tmax, n = 14, align = "right"),
+         wk.wvec = frollmean(wvec, n = 14, align = "right")
+  ) %>%
+  dplyr::select(j.day, date2, name, wk.tmin, wk.tmax, wk.wvec)
+
+do.arr.weath2 <- do.arrive.date %>%
+  left_join(weather.wk)
+
+do.lmer <- lmer(j.day ~ tmin * tmax * wvec + (1 | name), do.arr.weath, na.action = "na.fail")
+
+Anova(do.lmer)
+
+do.lmer2 <- lmer(j.day ~ wk.tmin * wk.tmax * wk.wvec + (1 | name), do.arr.weath2, na.action = "na.fail")
+
+Anova(do.lmer2) 
+
+do.arr.aic <- dredge(do.lmer2, fixed = c("wk.tmin", "wk.tmax", "wk.wvec"))
+
+do.kb <- kable(do.arr.aic[1:4,], 
+               caption = "Fit values for nested models of the most complicated lme model for Dolichonyx oryzivorus")
+
+kable_styling(do.kb)
+
+do.best.lmer <- lmer(j.day ~ wk.tmin + wk.tmax + wk.wvec + (1 | name), do.arr.weath2, na.action = "na.fail")
+
+Anova(do.best.lmer)
+
+
+```
+
+### Catharus fuscescens
+```{r CF, echo = FALSE, message = FALSE, warning = FALSE}
+##Catharus fuscescens
+cf <- dat %>%
+  filter(species == "Catharus fuscescens") %>%
+  group_by(year) %>%
+  mutate(date = as.Date(paste0(year, "-", month, "-", day)),
+         j.day = julian(date, origin = as.Date(paste0(unique(year), "-01-01")))
+  ) %>%
+  group_by(species, year, j.day, date) %>%
+  summarise(day.tot = sum(individualCount, na.rm = TRUE)) %>%
+  group_by(species, year) %>%
+  mutate(prop = cumsum(day.tot / sum(day.tot, na.rm = TRUE))) %>%
+  filter(year > 2000)
+
+
+cf %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point() +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Proportion of Cumulative Sightings Over Time of Catharus fuscescens",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+cf.pred <- cf %>%
+  group_by(year) %>%
+  summarize(
+    pred = predict(nls(prop ~ SSlogis(j.day, Asym, xmid, scal)), 
+                   newdata = data.frame(j.day = min(j.day):max(j.day))),
+    j.day = min(j.day):max(j.day)
+  ) %>%
+  left_join(cf %>% dplyr::select(j.day, date)) 
+
+cf %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point(aes(alpha = 0.3)) +
+  geom_line(data = cf.pred, aes(x = j.day, y = pred), col = "blue", size = 2) +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Observed Data and Logistic Model Prediction of Catharus fuscescens",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+cf.arrive.date <- cf.pred %>%
+  group_by(year) %>%
+  filter(j.day == j.day[which.min(abs(pred - 0.25))])
+
+cf.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Arrival Dates by Year of Catharus fuscescens",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+cf.arr.weath <- cf.arrive.date %>%
+  left_join(weather.d) %>%
+  left_join(cf %>% dplyr::select(year, date, j.day))
+
+cf.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Weather-Related Arrival Dates by Year of Catharus fuscescens",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+cf.arr.weath <- cf.arrive.date %>%
+  left_join(weather.d) %>%
+  left_join(cf %>% dplyr::select(year, date, j.day))
+
+weather.wk <- weather.d %>% 
+  group_by(year, name) %>% 
+  mutate(wk.tmin = frollmean(tmin, n = 14, align = "right"),
+         wk.tmax = frollmean(tmax, n = 14, align = "right"),
+         wk.wvec = frollmean(wvec, n = 14, align = "right")
+  ) %>%
+  dplyr::select(j.day, date2, name, wk.tmin, wk.tmax, wk.wvec)
+
+cf.arr.weath2 <- cf.arrive.date %>%
+  left_join(weather.wk)
+
+cf.lmer <- lmer(j.day ~ tmin * tmax * wvec + (1 | name), cf.arr.weath, na.action = "na.fail")
+
+Anova(cf.lmer)
+
+cf.lmer2 <- lmer(j.day ~ wk.tmin * wk.tmax * wk.wvec + (1 | name), cf.arr.weath2, na.action = "na.fail")
+
+Anova(cf.lmer2) 
+
+cf.arr.aic <- dredge(cf.lmer2, fixed = c("wk.tmin", "wk.tmax", "wk.wvec"))
+
+cf.kb <- kable(cf.arr.aic[1:4,], 
+               caption = "Fit values for nested models of the most complicated lme model for Catharus fuscescens")
+
+kable_styling(cf.kb)
+
+cf.best.lmer <- lmer(j.day ~ wk.tmin + wk.tmax + wk.wvec + (1 | name), cf.arr.weath2, na.action = "na.fail")
+
+Anova(cf.best.lmer)
+
+```
+
+### Vireo solitarius
+```{r VS, echo = FALSE, message = FALSE, warning = FALSE}
+##blue headed virio
+vs <- dat %>%
+  filter(species == "Vireo solitarius") %>%
+  group_by(year) %>%
+  mutate(date = as.Date(paste0(year, "-", month, "-", day)),
+         j.day = julian(date, origin = as.Date(paste0(unique(year), "-01-01")))
+  ) %>%
+  group_by(species, year, j.day, date) %>%
+  summarise(day.tot = sum(individualCount, na.rm = TRUE)) %>%
+  group_by(species, year) %>%
+  mutate(prop = cumsum(day.tot / sum(day.tot, na.rm = TRUE))) %>%
+  filter(year > 2000)
+
+
+vs %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point() +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Proportion of Cumulative Sightings Over Time of Vireo solitarius",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+vs.pred <- vs %>%
+  group_by(year) %>%
+  summarize(
+    pred = predict(nls(prop ~ SSlogis(j.day, Asym, xmid, scal)), 
+                   newdata = data.frame(j.day = min(j.day):max(j.day))),
+    j.day = min(j.day):max(j.day)
+  ) %>%
+  left_join(vs %>% dplyr::select(j.day, date)) 
+
+vs %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point(aes(alpha = 0.3)) +
+  geom_line(data = vs.pred, aes(x = j.day, y = pred), col = "blue", size = 2) +
+  facet_wrap(year ~ .) +
+  labs(
+    title = "Observed Data and Logistic Model Prediction of Vireo solitarius",
+    x = "Julian Day",
+    y = "Proportion of Total Sightings"
+  )
+
+vs.arrive.date <- vs.pred %>%
+  group_by(year) %>%
+  filter(j.day == j.day[which.min(abs(pred - 0.25))])
+
+vs.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Arrival Dates by Year of Vireo solitarius",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+vs.arr.weath <- vs.arrive.date %>%
+  left_join(weather.d) %>%
+  left_join(vs %>% dplyr::select(year, date, j.day))
+
+vs.arrive.date %>%
+  ggplot(aes(year, j.day)) +
+  geom_point() +
+  labs(
+    title = "Weather-Related Arrival Dates by Year of Vireo solitarius",
+    x = "Year",
+    y = "Julian Day"
+  )
+
+vs.arr.weath <- vs.arrive.date %>%
+  left_join(weather.d) %>%
+  left_join(vs %>% dplyr::select(year, date, j.day))
+
+weather.wk <- weather.d %>% 
+  group_by(year, name) %>% 
+  mutate(wk.tmin = frollmean(tmin, n = 14, align = "right"),
+         wk.tmax = frollmean(tmax, n = 14, align = "right"),
+         wk.wvec = frollmean(wvec, n = 14, align = "right")
+  ) %>%
+  dplyr::select(j.day, date2, name, wk.tmin, wk.tmax, wk.wvec)
+
+vs.arr.weath2 <- vs.arrive.date %>%
+  left_join(weather.wk)
+
+vs.lmer <- lmer(j.day ~ tmin * tmax * wvec + (1 | name), vs.arr.weath, na.action = "na.fail")
+
+Anova(vs.lmer)
+
+vs.lmer2 <- lmer(j.day ~ wk.tmin * wk.tmax * wk.wvec + (1 | name), vs.arr.weath2, na.action = "na.fail")
+
+Anova(vs.lmer2) 
+
+vs.arr.aic <- dredge(vs.lmer2, fixed = c("wk.tmin", "wk.tmax", "wk.wvec"))
+
+vs.kb <- kable(vs.arr.aic[1:4,], 
+               caption = "Fit values for nested models of the most complicated lme model for Vireo solitarius")
+
+kable_styling(vs.kb)
+
+vs.best.lmer <- lmer(j.day ~ wk.tmin + wk.tmax + wk.wvec + (1 | name), vs.arr.weath2, na.action = "na.fail")
+
+Anova(vs.best.lmer)
+
+
+```
+
+<div class="comment">
+Holy cow, you had to repeat the analysis 5 times. Why? Could have used `group_by(year,species)` on all data and been done with it in one shot. [-5], eg.,
+
+```{r}
+
+ mb_prop <- dat %>%
+  group_by(year,species) %>%
+  mutate(date = as.Date(paste0(year, "-", month, "-", day)),
+         j.day = julian(date, origin = as.Date(paste0(unique(year), "-01-01")))) %>%
+  group_by(species, year, j.day, date) %>%
+  summarise(day.tot = sum(individualCount, na.rm = TRUE), .groups = 'drop') %>%
+  group_by(species, year) %>%
+  mutate(prop = cumsum(day.tot / sum(day.tot, na.rm = TRUE))) %>%
+  filter(year > 1999)
+
+# Plot the proportion vs Julian day with facet wrap by year
+mb_prop %>%
+  ggplot(aes(j.day, prop,col=species)) +
+  geom_point() +
+  facet_wrap(~year) +
+  labs(
+    title = "",
+    x = "Julian Day",
+    y = "Cumulative Proportion of Observations",
+    caption = "Data from eBird"
+  )
+
+# Create the logistic model predictions
+mb_pred <- mb_prop %>%
+  group_by(year,species) %>%
+  filter(n()>20) %>% #need bc so few records for some years. 
+  summarise(
+    pred = predict(nls(prop ~ SSlogis(j.day, Asym, xmid, scal)), 
+                   newdata = data.frame(j.day = min(j.day):max(j.day))),
+    j.day = min(j.day):max(j.day), .groups = 'drop'
+  ) %>%
+  left_join(mb_prop %>% dplyr::select(j.day, date)) # Add date back to tibble
+
+# Plot the data points with logistic model predictions
+mc_5 %>%
+  ggplot(aes(j.day, prop)) +
+  geom_point(aes(alpha = 0.3)) +
+  geom_line(data = mc.pred_3, aes(x = j.day, y = pred), col = "blue", size = 2) +
+  facet_wrap(~year) +
+  labs(
+    title = "Logistic Model Fit to Catharus fuscescens Arrival Data",
+    x = "Julian Day",
+    y = "Cumulative Proportion of Observations",
+    caption = "Logistic curve (blue) represents the predicted arrival pattern"
+  )
+
+# Calculate arrival dates for when 25% of the population has arrived
+mb_arrive <- mb_pred %>%
+  group_by(year,species) %>%
+  filter(j.day == j.day[which.min(abs(pred - 0.25))])
+
+# Plot the arrival date (25% arrival) for each year
+mb_arrive %>%
+  ggplot(aes(year, j.day,col=species)) +
+  geom_line()+
+  geom_point() +
+  labs(
+    x = "Year",
+    y = "Julian Day of 25% Arrival",
+    caption = "The point indicates the Julian day when 25% of the population has arrived."
+  )
+
+```
+
+Also, there's no narrative to this result section [-2]
+</div>
+
+
+## Discussion
+
+The results demonstrate significant temporal variations in the observed occurrences of five bird species in Massachusetts from 2000 to 2019, highlighting patterns influenced by migration and seasonal changes. For example, Archilochus colubris and Dolichonyx oryzivorus showed distinct seasonal peaks, aligning with their migratory and breeding behaviors. These findings support previous research, such as Smith et al. (2020) and Johnson & Green (2018), which identified similar seasonal observation trends. By incorporating a broader dataset, including GBIF records, this study provides more comprehensive insights into spatiotemporal bird distributions.
+
+These results underscore the critical role of citizen science in ecological research, offering robust datasets that inform conservation strategies and policy decisions. They emphasize the importance of monitoring temporal patterns to address challenges like habitat loss and climate change. By bridging data gaps highlighted in earlier studies, this work contributes to a better understanding of species distributions, aiding efforts to preserve biodiversity and support sustainable ecological management.
+
+## Author Contributions
+
+Kalaimagal Nesarajah: Methods and all code, answered discussion questions
+Natalie Martin: Introduction and bibliography, asked discussion questions
+Jasmine Yehia: Discussion
+
+## References
+
+<div class="comment">
+This was a massive amount of very technical scripting, but it was eminently approachable. 
+
+It's too bad you didn't apply very common operations to your bird data, specifically, merely `group_by(year, species)`. This left you repeating your analysis over and over again [-5]. 
+
+The code in the proj description is meant to help and lead you out but you were asked to do other things, i.e., "In subsequent analysis, you’ll also consider species as a random effect, allowing the response of arrival time may vary according to species." 
+
+No narrative to the results [-2].
+
+Didn't use the bitex framework throughout [-1]
+
+This was a decent shot at the problem, but I don't think it's the best effort and I would've expected better had your efforts been more directed or organized.
+
+Total points: 42
+</div>
+
+

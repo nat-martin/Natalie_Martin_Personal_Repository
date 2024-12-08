@@ -1,0 +1,37 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 12"
+author: "Natalie Martin"
+date: "2024-11-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(devtools)
+devtools::install_github("sctyner/memer")
+library(memer)
+```
+
+# ANALYSIS
+```{r}
+meme_get("ExpandingBrain") %>% 
+  meme_text_brain("read.csv()"," %>% ","AIC()","randomForest()")
+```
+
+# INTERPRETATION
+## What I liked most: I was introduced to new analytical techniques that I would not otherwise have encountered. Our exposure to applications such as Fiji embolded my confidence in learning to use new softwares, a skill that will serve me well in the future. I enjoyed coding in a group because it is extremely helpful to bounce ideas off of one another (especially when there are errors!). The WCRs, while no one likes quizzes, did help me to keep pace with the class and start thinking about the Project Reports prior to their Sunday due dates. 
+
+## What I liked least: I wish that we had spent more time learning other basic coding skills. While I am confident that I could run a random forest model, I am still shaky on other basic functions that I wish I had learned in greater depth. The flipped learning model is challenging as well. While we had the opportunity to ask questions all the time during lecture, more quick and simple walk throughs of functions during class time would have really aided my learning. 
+
+
+<div class="comment">
+Love it! Thanks for playing along!
+
+Total points: 10
+</div>

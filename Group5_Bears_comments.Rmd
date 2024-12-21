@@ -1,0 +1,199 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+  
+  
+---
+title: "An Analysis of New Hampshire Black Bears & Hard Mast Distribution"
+author: "Natalie Martin, Chloe Callahan, Abigail Gaudette, Layne Kiratsous"
+date: "2024-12-16"
+output: html_document
+bibliography: BIOL3140.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+library(tidyverse)
+library(sf)
+library(stars)
+library(rnaturalearth)
+library(randomForest)
+library(mapview)
+```
+
+# Introduction
+
+The **American Black Bear** (*Ursus americanus*) is one of New Hampshire’s most noteworthy wildlife species. While black bears are omnivores and consume a wide range of food, **hard mast** composes a significant portion of their diet, especially in the fall as it is rich in fat and energy which provides bears with important nutrients to prepare for hibernation and enable reproductive success. Hard mast refers to the nuts and seeds produced by woody species such as Oak, Hickory, Beech, Chestnut, and Walnut. Soft mast, a black bear dietary staple in the summer months, consists of soft fruits and berries produced by species such as Spruce and Fir @ryan2007influence. In several areas of the country, such as Southern Appalachian forests, it has been proven that, “The relative abundance and distribution of oak mast, primarily white oak (*Quercus alba*), have a significant impact on bears in terms of natality, morality and movements” @pelton1989impacts. While oak is an important contributor, it is important to note that all varieties of hard mast are critical to these ecological processes. 
+
+This project aims to understand the relationship between hard mast distribution and black bear populations in New Hampshire. Understanding this relationship plays a key role in understanding the ecology of black bears and supporting their conservation efforts. 
+
+# Methods 
+
+We have conducted a **spatial analysis** to better understand the relationship between hard mast distribution and black bear populations in New Hampshire. We used black bear harvest data from the New Hampshire Fish and Game Department spanning from 2021 to 2023 as a proxy for black bear population abundance (more bears harvested implies a greater black bear population). Bear harvest season takes place during the fall when black bears are preparing for hibernation, i.e consuming large quantities of hard mast, making hard mast abundance an important ecological factor that is potentially influential over bear populations. The mean number of bears harvested per town over this time period is utilized under the assumption that hunting efforts remain consistent every year and throughout the state. 
+
+Additionally, we used land cover data from the NH Wildlife Action Plan 2020 as a proxy for hard mast distribution. This land cover data groups New Hampshire habitats (variable titled "WAP_HAB") into the following categories: "Hemlock-hardwood-pine" ,"Northern hardwood-conifer", "Developed Impervious", "Appalachian oak-pine","High-elevation spruce-fir" , and "Lowland spruce-fir". It is predicted that "Hemlock-hardwood-pine", "Northern hardwood-conifer", and "Appalachian oak-pine" denoted areas contain higher levels of hard mast than "Developed Impervious", "High-elevation spruce-fir", and "Lowland spruce-fir" denoted areas due to their higher density of hardwood. Both the bear harvest and land cover data sets were modified to be visualized by town using New Hampshire’s political boundaries. 
+
+To conduct such spatial analysis, we first visualized land cover patterns to assess how hard mast is distributed throughout the state of New Hampshire. We then visualized bear harvest patterns to assess black bear population distribution throughout the state during the fall months when they are consuming greater amounts of hard mast. We then performed a spatial analysis to assess if and how bear harvest hard mast distribution correlate. We then combined the land cover data with bear harvest data and implemented a random forest model to assess land cover's predictive ability of mean bear harvest. 
+
+# Results 
+
+<center>
+### **Figure 1.** Visualizing Land Cover Distribution Across New Hampshire as a Proxy for Hard Mast Distribution
+<center>
+
+```{r, "Land Cover Map", echo=FALSE, message=FALSE}
+
+nh <- read_sf("NH/New_Hampshire_Political_Boundaries.shp") %>%
+  rename(TOWN=pbpNAME)
+
+lc <- read_sf("land_cover/NH_Wildlife_Action_Plan_2020_-_Habitat_Land_Cover.shp")
+
+lc2 <- lc%>% 
+  st_transform(st_crs(nh)) %>% 
+  st_join(nh) 
+
+lc3 <- lc2 %>% 
+  st_drop_geometry() %>% 
+  filter(WAP_HAB!="Open water") %>% 
+  group_by(TOWN,WAP_HAB) %>% 
+  summarise(hab_sum=sum(HECTARES)) %>% 
+  group_by(TOWN) %>% 
+  mutate(hab_per=hab_sum/sum(hab_sum))
+  
+pred_lc <- lc3 %>% 
+  group_by(TOWN) %>% 
+  filter(hab_per==max(hab_per))
+
+landcover_dat <- nh %>% 
+  left_join(pred_lc)
+
+landcover_map <- landcover_dat %>% 
+  ggplot() +
+  geom_sf(aes(fill=WAP_HAB))
+
+print(landcover_map)
+```
+<center>
+### **Figure 2.** Visualizing Bear Harvest Distribution (2021-2023) Across New Hampshire as a Proxy for Black Bear Abundance 
+<center>
+
+```{r, "Bear Harvest Map", echo=FALSE}
+bear_harvest <- read.csv("bear_harvest.csv")
+
+nh_bears <- nh %>%
+  left_join(bear_harvest, by = "TOWN") %>%
+  dplyr::select(TOWN, MEAN, geometry)
+
+bearharvest_map <- nh_bears %>% 
+  ggplot() +
+  geom_sf(aes(fill = MEAN))
+
+print(bearharvest_map)
+
+```
+
+<center> 
+### **Figure 3.*** Modeling Land Cover's Predictive Ability of Bear Harvest
+<center> 
+
+```{r, "Create rf_dat", echo=FALSE}
+na_to_zero <- function(x) ifelse(is.na(x) | is.infinite(x), 0, x)
+
+rf_dat <- landcover_dat %>% 
+    left_join(bear_harvest, by = "TOWN") %>%
+  dplyr::select(TOWN, MEAN, WAP_HAB) 
+
+rf_new <- rf_dat %>% 
+  st_drop_geometry() %>% 
+  ungroup() %>% 
+  mutate(MEAN = na_to_zero(MEAN))
+
+#CPK: This issue was this: You have mean harvest data for each town and ONLY the predominant habitat in that down. You computed the habitat percentage for each town. Why didn't you use that, a la module 6? Like.....
+
+arc_sin <- function(x) asin(sqrt(x))
+
+rf_cpk <-  lc2 %>% 
+  st_drop_geometry() %>% 
+  filter(WAP_HAB!="Open water") %>% 
+  group_by(TOWN,WAP_HAB) %>% 
+  summarise(hab_sum=sum(HECTARES)) %>% 
+  group_by(TOWN) %>% 
+  mutate(hab_per=hab_sum/sum(hab_sum)) %>% 
+  select(-hab_sum) %>% #CPK: remove uneeded column ahead of widening
+  pivot_wider(names_from = WAP_HAB,values_from = hab_per,) %>% #widen
+  left_join(bear_harvest %>% select(TOWN,MEAN)) %>% #join harvest data
+  ungroup %>% #to remove town
+  select(-TOWN)%>% #remove TOWN, not a predictor
+  mutate_all(.funs = na_to_zero) %>%  #change all NAs to zero 
+    mutate(across(-MEAN,arc_sin)) #best to arcsin transform proportions
+
+
+
+colnames(rf_cpk) <- str_replace_all(string=colnames(rf_cpk), pattern=" |\\,|\\/| |-", repl="")
+
+
+tuneRF(x=rf_cpk %>% select(-MEAN),
+         rf_cpk$MEAN,
+       stepFactor=1.5,
+       ntreeTry=1000,
+       trace=F,
+       mtryStart = 5,
+       improve = 0.001)
+
+Random_Forest_Model <- randomForest(MEAN ~., data = rf_cpk, mtry = 7, ntree = 10000, importance = TRUE, localImp = T)
+varImpPlot(Random_Forest_Model, type=1)
+
+rf_cpk %>% 
+  filter(MEAN!=0,DevelopedImpervious!=0) %>% 
+  ggplot(aes(DevelopedImpervious,MEAN)) +
+  geom_point()+
+  geom_smooth(method="lm")
+```
+
+```{r, "Random Forest Model", echo=FALSE}
+Random_Forest_Model <- randomForest(MEAN ~., data = rf_new, mtry = 2, ntree = 1000, importance = TRUE, localImp = T)
+varImpPlot(Random_Forest_Model, type=1)
+
+```
+
+# Discussion 
+
+### Distribution Comparisons 
+
+The results demonstrate how spatial data can be used to examine black bear harvest in relation to habitat types in the state of New Hampshire. The different habitat types present are grouped into the aforementioned categories: "northern hardwood-conifer", "lowland spruce-fir", "high elevation spruce-fir", "hemlock-hardwood-pine", "developed impervious", and "Appalachian oak-pine". Each town in the state is assigned one of these  habitat types based on it predominant land cover. The land cover distribution map allowed us to identify towns with habitats likely to produce and abundance of hard mast - "northern hardwood-conifer", "hemlock-hardwood-pine", and "Appalachian oak-pine" - and  habitats likely to produce less hard mast - "lowland spruce-fir", "high elevation spruce-fir", and "developed impervious". 
+
+As shown by the two maps, the highest bear harvest appears to be most closely correlated with northern hardwood-conifer habitats, with a lower, but still significant, harvest associated with hemlock-hardwood-pine habitats. This coincides with hypotheses made, for these habitat types are known to offer high hard mast availability.
+
+Furthermore, as expected, “developed impervious" and "high elevation spruce-fir" habitats showed very low or no harvest. "Developed impervious" towns are urbanized and non-mast producing, therefore would not be suitable to sustain a black bear population. "High elevation spruce-fir" habitats have a very low amount of hard wood species, therefore are also typically non hard mast producing and not suitable to sustain a black bear population. 
+
+
+"Appalachian oak-pine" habitats were expected to lead to high bear harvest because of their high hard mast producing qualities, but this hypothesis was not represented in the data. These regions were often close in proximity to "developed impervious" areas where bear harvest is uncommon. This opens the door for further research on the role of the human population in New Hampshire bear populations. 
+
+### Random Forest Model Analysis 
+
+The random forest model, which predicted the mean bear harvest from 2021-2023 based on the habitat denotations and Town, produced a %IncMSE value for Town of just below -10 and a value for WAP_HAB in the high 40 range. Such values speak to the predictive variables' ability to determine the predicted variable. A negative value for Town implies the variable contributes no useful information to the model and is irrelevant. A value in the high 40 range for WAP_HAB suggests the variable is a valuable predictor in the model. Overall, this model shows that habitat type is a strong predictor of bear harvest, further supporting our spatial analysis. 
+
+### Conclusions 
+
+Based on our data, we can conclude that during the fall months black bear populations are greater in areas where hard mast is more abundant than areas of low hard mast abundance because more bears are harvested in these areas. We can also conclude that habitat is a strong predictor of bear harvest. These conclusions are likely due to the fact that hard mast is incredibly important as it provides black bears crucial nutrients for hibernation and reproductive success. Simply put, large quantities of hard mast draw in and keep the bears in these habitats. These conclusions align with those drawn in West Virginia showing that low mast years negatively affected black bear populations @ryan2007influence. They also align with research done in Massachusetts showing that female black bears with high hard mast diets had far greater reproductive success than those with low hard mast diets @elowe1989factors. 
+
+# Author Contributions
+
+The planning, writing, and analysis conducted for this project was equally divided between the four group members. 
+
+# References
+
+
+<div class="comment">
+This is a  solid look of the spatial distribution of bears in NH. There's a really good question here, but, aside from qualitative visual analysis, the modeling just doesn't pan out. A single variable does not a random forest make. It's clear that this group didn't quite grasp the approach and data wrangling important to a nearly identical analysis in module 6. In other words, this really isn't much of a demonstration of how the group learned to leverage skills from the class [-12].
+
+On the up side, the report is excellently written and incorporates a lot of great literature sources. I especially like your discussion, inferring bear-landscape patterns based on your mapping. As it turns out (based on a more logical and appropriate rf analysis encoded above), these patterns are support by quantitative analysis.  
+
+
+Total points: 90
+</div>
+
